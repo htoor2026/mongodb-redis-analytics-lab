@@ -1,237 +1,121 @@
-Advanced Data Systems — Analytics & Streaming Pipeline
-Overview 
+# MongoDB & Redis Analytics Lab
 
-This repository contains an end-to-end data engineering and analytics project built for an Advanced Data Systems course. The project demonstrates how large-scale public datasets can be ingested, modeled, indexed, analyzed, and optimized using MongoDB, Redis, and Python, with a focus on performance engineering, time-series analytics, and stream processing concepts.
+**Exploring time-series analytics, query performance, caching, and event processing with public health and NYC taxi data.**
 
-The system combines batch analytics, materialized views, query optimization, and real-time caching/stream simulation, reflecting patterns used in modern data platforms.
+Built as an Advanced Data Systems coursework project at Conestoga College. This repository brings together a runnable taxi-data importer and a technical report containing MongoDB aggregation pipelines, execution-plan screenshots, Atlas Charts, and Redis exercises.
 
-Datasets Used
-1. OWID COVID-19 Dataset (CSV)     
+## Project at a glance
 
-Source:
+| Area | Work covered | Where to inspect it |
+| --- | --- | --- |
+| Data ingestion | Parquet loading, field selection, timestamp conversion, and MongoDB inserts | [Python importer](import_tlc_trips.py) |
+| Public health analytics | Rolling case averages, surge comparisons, and annual country metrics | [Project report](docs/project-report.pdf), Tasks 1–2 |
+| Materialized results | Country-year summaries written with `$merge` and a unique compound index | Report, Task 3 |
+| Visualization | Country comparisons, time trends, and vaccination scatter plots | Report, Task 4 |
+| Taxi analytics | Hourly trip counts, revenue, approximate 95th percentiles, and moving averages | Report, Task 5 |
+| Query performance | Baseline, indexed, and rewritten aggregation exercises with `explain()` | Report, Task 6 |
+| Redis | Cache keys and TTLs; Streams, consumer groups, and acknowledgements | Report, R1–R2 |
 
-https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv
+**Scope:** The importer runs independently. The remaining exercises are documented in the report; standalone analytics scripts, a running dashboard, and a complete stream consumer are not included.
 
+## Questions explored
 
-Used for:
+- How can window functions reveal changes in reported COVID-19 cases?
+- How can annual summaries be stored for reuse in charts and queries?
+- How do taxi demand and recorded revenue change across hourly buckets?
+- How do indexes and aggregation structure affect query execution?
+- How can Redis support expiring analytical results and simulated trip events?
 
-Time-series pandemic analysis
+## Data and tools
 
-Rolling averages and surge detection
+| Dataset | Format and coverage | Use |
+| --- | --- | --- |
+| [Our World in Data COVID-19 data](https://github.com/owid/covid-19-data) | Daily country-level CSV records | Public health time-series exercises |
+| [NYC TLC yellow taxi records](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page) | September 2024 Parquet; first 200,000 rows used in the coursework | Trip ingestion, hourly demand, and revenue analytics |
 
-Annual risk index computation
+The taxi importer retains pickup/drop-off timestamps, pickup/drop-off location IDs, passenger count, trip distance, fare amount, total amount, and payment type. Source datasets are downloaded separately and excluded from Git.
 
-Policy, vaccination, and health outcome correlations
+**Stack:** Python · pandas · PyArrow · PyMongo · MongoDB · Redis · MongoDB Compass · Atlas Charts
 
-2. NYC TLC Yellow Taxi Trips (Parquet – Sept 2024)
+## Run the taxi importer
 
-Source:
+### 1. Install dependencies
 
-https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-09.parquet
+Use Python 3.10 or newer, with access to a MongoDB instance you control.
 
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
 
-Used for:
+### 2. Download the data
 
-Large-scale event data ingestion
+Download [September 2024 yellow taxi trips](https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-09.parquet) and place `yellow_tripdata_2024-09.parquet` in the repository root. The script also accepts a different file path.
 
-Hour-of-day demand and revenue analytics
+### 3. Configure MongoDB
 
-Percentile and moving-average calculations
+For a local MongoDB instance:
 
-Performance engineering experiments
+```bash
+export MONGODB_URI='mongodb://localhost:27017/'
+```
 
-Architecture & Technology Stack
+For another instance, supply its connection URI through the same environment variable. Database and collection names default to `global_lab` and `tlc_trips`; override them with `MONGODB_DATABASE` and `MONGODB_COLLECTION`.
 
-Languages & Tools
+### 4. Import the sample
 
-Python (Pandas, PyMongo, PyArrow)
+```bash
+python import_tlc_trips.py
+```
 
-MongoDB Atlas (Aggregation Framework, Indexing, $merge, $setWindowFields)
+Optional arguments:
 
-Redis (Caching, TTL, Streams)
+```bash
+python import_tlc_trips.py --file /path/to/trips.parquet --limit 10000
+python import_tlc_trips.py --help
+```
 
-MongoDB Compass & Atlas Charts
+The importer checks the required columns, converts missing values to BSON-compatible nulls, and inserts records in batches. It **appends** to the target collection: running it twice inserts the sample twice. Use a fresh collection for a repeatable lab run.
 
-Core Concepts Demonstrated
+The row limit applies after loading the Parquet file, so memory usage depends on the full source file. It is a row selection limit, not a streaming reader.
 
-Schema design & data normalization
+## Read the analytical work
 
-Time-series analytics
+Open the [project report](docs/project-report.pdf) for the queries and screenshots. The coursework used these index patterns:
 
-Window functions & rolling statistics
+| Collection | Index pattern | Intended workload |
+| --- | --- | --- |
+| `owid_daily` | `{ location: 1, date: 1 }` | Country/date filtering and ordered time-series work |
+| `owid_daily` | `{ continent: 1, date: 1 }` | Continent/date queries |
+| `tlc_trips` | `{ tpep_pickup_datetime: 1 }` | Pickup-time range filters |
+| `tlc_trips` | `{ PULocationID: 1, tpep_pickup_datetime: 1 }` | Zone/time filtering |
+| `risk_annual_v1` | `{ location: 1, year: 1 }`, unique | Country-year identity for `$merge` |
 
-Materialized views
+Evaluate these against the actual query plan and data distribution. The report contains execution-plan comparisons, rather than a reproducible benchmark suite or a verified speedup figure.
 
-Index-driven performance optimization
+## Design notes and next improvements
 
-Caching & stream consumption patterns
+The coursework demonstrates database techniques, with several limits to address before extending it into an application:
 
-Data Ingestion
-OWID COVID-19 Data
+- The first 200,000 taxi rows are a convenience subset, not a representative random sample of the month.
+- The COVID-19 risk score is an illustrative composite metric. The annual-analysis and materialization sections use different formulas; they need alignment before the results can be compared.
+- Redis acknowledgements are shown, but crash recovery and idempotent database writes still need implementation and validation.
 
-Imported using a custom Python script
+See [technical notes](docs/technical-notes.md) for details and focused follow-up work.
 
-Reduced to essential analytical fields to fit cloud storage constraints
+## Repository files
 
-Converted dates to ISODate
+| File | Purpose |
+| --- | --- |
+| `import_tlc_trips.py` | Configurable taxi-data importer |
+| `requirements.txt` | Python dependencies |
+| `docs/project-report.pdf` | Original coursework analysis, queries, and screenshots |
+| `docs/technical-notes.md` | Methodological limits and engineering improvements |
+| `.gitignore` | Excludes local data, credentials, environments, and generated Python files |
 
-Cleaned missing values (NaN → null)
+## Author
 
-Inserted using insert_many via PyMongo
+**Harkamal Singh Toor** · [GitHub](https://github.com/htoor2026) · [LinkedIn](https://www.linkedin.com/in/harkamal-s/)
 
-NYC TLC Taxi Trips
-
-Parquet file loaded using Pandas + PyArrow
-
-Selected key operational and financial fields
-
-Sampled first 200,000 rows to remain within Atlas free-tier limits
-
-Converted timestamps to datetime
-
-Inserted into MongoDB using PyMongo
-
-Index Strategy
-
-Indexes were designed to support analytics workloads, not just point lookups.
-
-OWID Collection (owid_daily)
-
-{ location: 1, date: 1 }
-Enables efficient time-series window operations and surge detection.
-
-{ continent: 1, date: 1 }
-Supports continent-level aggregation and trend analysis.
-
-TLC Collection (tlc_trips)
-
-{ tpep_pickup_datetime: 1 }
-Optimizes time-based scans, rolling averages, and performance experiments.
-
-{ PULocationID: 1, tpep_pickup_datetime: 1 }
-Enables fast zone-and-time demand analytics.
-
-Analytical Workloads
-Pandemic Surge Detection
-
-7-day rolling averages using $setWindowFields
-
-14-day lag comparison using $shift
-
-Surge multiplier calculation
-
-ISO week grouping
-
-Weekly top-5 countries by surge intensity
-
-Performance verified using explain() before and after indexing
-
-Annual Risk Index
-
-A composite risk_index computed per country per year using:
-
-Cases per 100k
-
-Deaths per 100k
-
-Median stringency index
-
-Vaccination coverage
-
-Each component is normalized and weighted to produce a bounded risk score reflecting public health impact and mitigation factors.
-
-Materialized View
-
-Annual country-level risk metrics written using $merge
-
-Stored in risk_annual_v1
-
-Unique compound index ensures one record per country per year
-
-Designed for dashboards and downstream analytics
-
-NYC Taxi Demand & Revenue Analytics
-
-Hour-level aggregations
-
-95th percentile fare analysis
-
-3-hour moving averages using window functions
-
-Identification of peak demand and high-revenue periods
-
-Patterns consistent with commuter and airport traffic behavior
-
-Performance Engineering
-
-A heavy aggregation query was evaluated in three stages:
-
-Baseline – no index (COLLSCAN)
-
-Indexed – time-based index (IXSCAN)
-
-Rewritten – reduced projections and optimized pipeline order
-
-Results show:
-
-Reduced documents examined
-
-Elimination of in-memory sorts
-
-Lower execution time and resource usage
-
-Real-Time Concepts (Redis)
-Caching
-
-Demand or surge results cached using Redis keys
-
-TTL applied to ensure freshness
-
-Cache-miss triggers recomputation and refresh
-
-Demonstrates read-through cache behavior
-
-Streaming Simulation
-
-Redis Streams used to simulate live taxi events
-
-Consumer group processes events
-
-Aggregates trips by hour and zone
-
-Writes results to MongoDB materialized collection
-
-Ensures at-least-once processing semantics
-
-Repository Contents
-
-FinalExam.pdf — Full project report with explanations and screenshots
-
-import_tlc.py — Python script used to ingest NYC TLC data
-
-README.md — Project overview and technical documentation
-
-.gitignore — Prevents accidental commits of data files or secrets
-
-Why This Project Matters
-
-This project mirrors real-world data engineering workflows:
-
-Handling large datasets under resource constraints
-
-Designing indexes for analytics, not just CRUD
-
-Using window functions for time-series analysis
-
-Materializing views for performance
-
-Integrating batch and streaming concepts
-
-Applying caching to reduce computation cost
-
-It demonstrates practical skills relevant to Data Engineering, Analytics Engineering, and Backend Data Systems roles.
-
-Author
-
-Harkamal Toor
-Advanced Data Systems — Final Project
+Originally completed for Advanced Data Systems, Conestoga College, December 2025.
